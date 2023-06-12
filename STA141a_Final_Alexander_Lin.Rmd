@@ -1,0 +1,504 @@
+---
+title: <b><em>Project Report - Predictive Modeling of Trial Outcome based on Neural Activity and Stimuli</em></b>
+author: "Alexander Lin"
+#date: "June 12, 2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(gridExtra)
+library(tree)
+library(aod)
+library(gridExtra)
+library(MASS) 
+library(DiagrammeR)
+library(kableExtra)
+```
+
+<hr class="first-line">
+<div class="title-text">
+#### Intructor: Dr. Shizhe Chen    
+#### STA 141A Spring 2023 Fundamentals of Statistical Data Science   
+#### University of California, Davis   
+#### June 12, 2023   
+</div>
+<hr class="second-line">
+
+<style>
+body {
+  font-family: "Times New Roman", Times, serif;
+}
+.title {
+  text-align: center;
+  margin-top: 100px;
+  margin-bottom: 30px;
+  font-size: 60px
+}
+.author {
+  text-align: center;
+  font-size: 25px;
+  margin-bottom: 70px;
+}
+.date {
+  text-align: center;
+  font-size: 20px;
+}
+
+hr {
+  height: 1px;
+  background-color: black;
+  width: 55%;
+  
+}
+.second-line {
+  margin-bottom: 200px;
+}
+.title-text {
+  text-align: center;
+  font-size: 25px;
+}
+.body {
+  font-size: 15px;
+}
+</style>
+
+
+## <b>1. Abstract</b>
+
+<p class="body">The goal of this project is to use a subset of the data collected by <em>Steinmetz et al.</em> (2019) to build a predictive model that predicts the outcome of the trials. The data set is based on experiments that were performed on 10 mice over 39 sessions. The mice were given stimuli on two screens, which were positioned left and right of them. The mice had to make the right decisions based on the values of the stimuli. The data collected was the neural activity of the mice in the form of spike trains, along with the corresponding time stamps and brain area associated with the neuron. The stimuli and neural activity will be used in the prediction model. This project is broken down into three different parts: exploratory data analysis, data integration, and model training and prediction.</p>
+
+## <b>2. Introduction</b>
+
+<p class="body">Getting a better understanding of the correlation between decision making and neural activity is an important step in understanding the deeper complexities of this topic. In <em>Steinmetz et al.</em> (2019), a study was conducted on mice and their neural activity was recorded when given decision making tasks. The mice are given a left and right stimuli and depending on the contrast of the stimuli values, they have to turn a wheel to the correct direction. If the contrast levels are different, they succeed if they turn the wheel to the direction of the larger value. If the contrast levels are both zero, they succeed if they do not turn the wheel at all. If the contrast levels are the same but not zero, the correct choice is chosen randomly, and they succeed if they turn the wheel to the correct direction.</p>    
+
+In this project, the objective is to build a predictive model that can predict whether the mouse will succeed or fail based on the values of the contrast stimuli and the neural activity. Analyzing the neural patterns allows for a greater understanding of the connection between neural spike trains and decision making. The project is divided into three parts.
+
+In exploratory data analysis, we gain insights on the characteristics and features of the data set. We will observe the similarities and differences across sessions and mice. The goal of this part is to get a good understanding of the data so we can successfully execute the next parts.
+
+In data integration, we plan on using our knowledge from part 1 to find a way to merge the data from all trials. This could be done by using the similarities or differences. The goal is to leverage information from multiple sessions to create the predictive model, but also maintain the characteristics of each session.
+
+The last part involves the creation of the predictive model and using it to accurately predict the results. The predictive model will use data from the subset and also any new data transformations made in the previous parts. 
+
+## <b>3. Exploratory analysis</b>
+
+<p class="body">The subset of data from <em>Steinmetz et al.</em> (2019) that will be used in this project contains 4 mice and 18 sessions. The variables in <b>Table 1</b> are `session` (the session number), `mouse_name` (the unique name of the mouse), `date_exp` (the date of the experiment), `trials` (the number of trials in that session), `neurons` (the number of neurons), `brain_areas` (the number of unique brain areas), and `success_rate` (the fraction of success among all trials in a session). In all 18 sessions, there are a total of 5081 trials, 16305 unique neurons, and 62 unique brain areas.</p>
+```{r, echo=FALSE}
+data = '~/Desktop/Sta 141a/Project/sessions/session'
+dataT = '~/Desktop/Sta 141a/Project/test/test'
+session=list()
+testDat=list()
+uni = list()
+allUni = c()
+for(i in 1:18){
+  session[[i]]=readRDS(paste(data,i,'.rds',sep=''))
+  uni[[i]] = unique(session[[i]][["brain_area"]])
+  uni[[i]] = sort(uni[[i]])
+  allUni <- append(allUni, c(uni[[i]]))
+}
+
+for (i in 1:2){
+  testDat[[i]]=readRDS(paste(dataT,i,'.rds',sep=''))
+}
+
+for(i in 1:18){
+  session[[i]]=readRDS(paste(data,i,'.rds',sep=''))
+  uni[[i]] = unique(session[[i]][["brain_area"]])
+  uni[[i]] = sort(uni[[i]])
+  allUni <- append(allUni, c(uni[[i]]))
+}
+tabUni <- table(allUni)
+tabUni_ord <- tabUni[order(tabUni, decreasing = TRUE)]
+
+```
+```{r, echo=FALSE, out.width="100%"}
+mouse_name <- c()
+date_exp <- c()
+trials <- c()
+neurons <- c()
+brain_areas <- c()
+success_rate <- c()
+for (i in 1:18){
+  mouse_name <- append(mouse_name, session[[i]][["mouse_name"]])
+  date_exp <- append(date_exp, session[[i]][["date_exp"]])
+  trials <- append(trials, length(session[[i]][["spks"]]))
+  neurons <- append(neurons, length(session[[i]][["brain_area"]]))
+  brain_areas <- append(brain_areas, length(uni[[i]]))
+  success_rate <- append(success_rate, 
+                         round(sum(session[[i]][["feedback_type"]]==1)/length(session[[i]][["feedback_type"]]),2))
+}
+
+knitr::kable(data.frame(session=c(1:18), mouse_name, date_exp, trials, neurons, brain_areas, success_rate), caption = "<b>Table 1.</b> Summary of each session") %>%
+  kable_classic(full_width = F, html_font = "Times New Roman") 
+
+```
+<p class="body">Other variables include `contrast_left` (value of left stimuli), `contrast_right` (value of right stimuli), and `feedback_type` (trial outcome, 1 for success and -1 for failure). The values of the stimuli can only be 0, 0.25, 0.5, and 1.</p>
+
+## <b>4. Data integration</b>
+<p class="body">Since the data across sessions do not have the same variable dimensions, it can not be combined into a large data frame. The way to solve this problem is by extracting shared features across sessions, while maintain the integrity of the original data. The approach taken in this project was to find the average activation rate for each trial. Activation rate is the amount of times the neuron spiked divided by the total number of recorded data for that neuron per trial. The activation rate was then averaged per trial. As a way to compare the activation rates per sessions and per mouse, the density of each session's rates were calculated and graphed. In <b>Figure 1</b>, it can be seen that the patterns of the densities do not all share the same patterns. The densities for each mouse seem to have some correlation with one another. For example, Forssmann's densities are more left skewed and show less variance than Hench's densities. From the plots, it can be concluded the neurons are not the same across sessions</p>   
+```{r, echo=FALSE}
+neuronAveFunc <- function(fb){
+sumSesMat <- list()
+sumSesMatFeed <- list()
+numTrials <- c()
+for (ss in 1:18){
+  spks <- session[[ss]][["spks"]]
+  count <- c(1:dim(spks[[1]])[1])
+  feed <- session[[ss]][["feedback_type"]]
+  trial <- 1:length(feed)
+  feedTemp <- data.frame(feed,trial)
+  feedFilter <- feedTemp %>% filter(feed %in% c(fb))
+  
+  longDat <- c()
+  feedback <- c()
+    brainAve <- c(matrix(0,dim(spks[[1]])[1],1))
+    for (j in feedFilter$trial){
+      brainAve <- (mean(rowSums(spks[[j]]!=0)/40))
+      longDat <- append(longDat,brainAve)
+    }
+    
+  sumSesMat[[ss]] <- longDat
+}
+return(sumSesMat)
+}
+
+successAve <- neuronAveFunc(1)
+failAve <- neuronAveFunc(-1)
+neuronAve <- neuronAveFunc(c(1,-1))
+
+```
+### <b>Figure 1.</b> Density of Activation Rates    
+```{r, echo=FALSE, out.width="100%"}
+plotDen <- function(sumSesMat){
+denNeuron <- list()
+plot <- ggplot()
+
+for(i in c(1:18)){
+  denNeuron[[i]] <- density(sumSesMat[[i]])
+  data <- data.frame(x = denNeuron[[i]]$x, y = denNeuron[[i]]$y, mouse=mouse_name[i])
+  plot <- plot + geom_line(data=data, aes(x = x, y = y, color=mouse, group=mouse), linewidth=0.5)
+}
+return(plot)
+}
+successDen <- plotDen(successAve)
+actRatePlot.S <- successDen + labs(title="Density of Activation Rate Averages for Success Trials")
+
+failDen <- plotDen(failAve)
+actRatePlot.F <- failDen + labs(title="Density of Activation Rate Averages for Failed Trials")
+
+neuronDen <- plotDen(neuronAve)
+actRatePlot.A <- neuronDen + labs(title="Density of Activation Rate Averages for All Trials")
+
+grid.arrange(actRatePlot.S, actRatePlot.F, actRatePlot.A, ncol = 1) 
+```
+
+<p>Additionally, I plotted the successes of each mouse. It can be seen that Lederberg has the more linear success rates among his trials. While Cori has more variance in his trials with the lines overlapping more. The success rates of Forssmann and Hench are wider. To further show the differences between the trials and mice, when counting the amount of successes, fails counted as -1 instead of 0 for <b>Figure 3</b>. In this figure, the trends are the same, just magnified from before. From these plots, it can be seen that the success rates of the mice are different, so it means that the decsion making processes of the mice are also different. Since the test data will only be from Session 1 and Session 18, I plan on weighing my training data to better fit for Cori in Session 1 and Lederberg in Session 18.</p>   
+
+```{r,  echo = FALSE, warning=FALSE, message=FALSE}
+allSuccessFails = function(x){
+count1 = 0
+count2 = c()
+  for(i in 1:nrow(x)){
+    if(x[i,1] == 1){
+      count1 = count1 + x[i,1]
+      count2  = append(count2 ,count1)
+    }
+    else{
+      count1 = count1 + x[i,1] + 1
+      count2  = append(count2 ,count1)
+    }
+  }
+  trialnum = 1:nrow(x)
+  SF = data.frame(count2, trialnum)
+  return(SF)
+  }
+```
+### <b>Figure 2.</b> Success by Mouse   
+
+```{r,  echo = FALSE, warning=FALSE, message=FALSE}
+# not penalized for incorrect 
+names <- c("Cori", "Forssmann", "Hench", "Lederberg") 
+Cori <- ggplot() + ggtitle("Cori Success Rate") + xlab("trials") + ylab("successes")
+Forssmann <- ggplot() + ggtitle("Forssmann Success Rate") + xlab("trials") + ylab("successes")
+Hench <- ggplot() + ggtitle("Hench Success Rate") + xlab("trials") + ylab("successes")
+Lederberg <- ggplot() + ggtitle("Lederberg Success Rate") + xlab("trials") + ylab("successes")
+color <- rainbow(18)
+
+for (i in 1:18) {
+  sess <- session[[i]]
+  for (name in names) {
+    if (sess$mouse_name == "Cori") {
+      runsum <- sess["feedback_type"] %>% as.data.frame() %>% allSuccessFails()
+      Cori <- Cori +
+        geom_point(data = runsum, aes(x = trialnum, y = count2), color = color[sample(1:18,1)])
+    }
+    if (sess$mouse_name == "Forssmann") {
+      runsum <- sess["feedback_type"] %>% as.data.frame() %>% allSuccessFails()
+      Forssmann <- Forssmann +
+        geom_point(data = runsum, aes(x = trialnum, y = count2), color = color[sample(1:18,1)])
+    }
+    if (sess$mouse_name == "Hench") {
+      runsum <- sess["feedback_type"] %>% as.data.frame() %>% allSuccessFails()
+      Hench <- Hench +
+        geom_point(data = runsum, aes(x = trialnum, y = count2), color = color[sample(1:18,1)])
+    }
+    if (sess$mouse_name == "Lederberg") {
+      runsum <- sess["feedback_type"] %>% as.data.frame() %>% allSuccessFails()
+      Lederberg <- Lederberg +
+        geom_point(data = runsum, aes(x = trialnum, y = count2), color = color[sample(1:18,1)])
+    }
+  }
+}
+grid.arrange(Cori, Forssmann, Hench, Lederberg)
+```
+
+### <b>Figure 3.</b> Success minus Fails
+
+```{r,  echo = FALSE, warning=FALSE, message=FALSE}
+SuccFail = function(x){
+count1 = 0
+count2 = c()
+  for(i in 1:nrow(x)){
+      count1 = count1 + x[i,1]
+      count2 = append(count2,count1)
+    }
+  trialnum = 1:nrow(x)
+  SF = data.frame(count2, trialnum)
+  return(SF)
+  }
+```
+```{r,  echo = FALSE, warning=FALSE, message=FALSE}
+names <- c("Cori", "Forssmann", "Hench", "Lederberg") 
+Cori <- ggplot() + ggtitle("Cori Success Rate") + xlab("trials") + ylab("successes")
+Forssmann <- ggplot() + ggtitle("Forssmann Success Rate") + xlab("trials") + ylab("successes")
+Hench <- ggplot() + ggtitle("Hench Success Rate") + xlab("trials") + ylab("successes")
+Lederberg <- ggplot() + ggtitle("Lederberg Success Rate") + xlab("trials") + ylab("successes")
+color <- rainbow(18)
+
+for (i in 1:18) {
+  sess <- session[[i]]
+  for (name in names) {
+    if (sess$mouse_name == "Cori") {
+      runsum <- sess["feedback_type"] %>% as.data.frame() %>% SuccFail()
+      Cori <- Cori +
+        geom_point(data = runsum, aes(x = trialnum, y = count2), color = color[sample(1:18,1)])
+    }
+    if (sess$mouse_name == "Forssmann") {
+      runsum <- sess["feedback_type"] %>% as.data.frame() %>% SuccFail()
+      Forssmann <- Forssmann +
+        geom_point(data = runsum, aes(x = trialnum, y = count2), color = color[sample(1:18,1)])
+    }
+    if (sess$mouse_name == "Hench") {
+      runsum <- sess["feedback_type"] %>% as.data.frame() %>% SuccFail()
+      Hench <- Hench +
+        geom_point(data = runsum, aes(x = trialnum, y = count2), color = color[sample(1:18,1)])
+    }
+    if (sess$mouse_name == "Lederberg") {
+      runsum <- sess["feedback_type"] %>% as.data.frame() %>% SuccFail()
+      Lederberg <- Lederberg +
+        geom_point(data = runsum, aes(x = trialnum, y = count2), color = color[sample(1:18,1)])
+    }
+  }
+}
+grid.arrange(Cori, Forssmann, Hench, Lederberg)
+```
+
+```{r, echo = FALSE}
+LRfeed <- c()
+k <- 1
+kk <- 1
+for (ss in 1:18){
+conLeft1 <- session[[ss]][["contrast_left"]]
+conRight1 <- session[[ss]][["contrast_right"]]
+feedback1 <- session[[ss]][["feedback_type"]]
+conLRfeed <- data.frame(conLeft1,conRight1,feedback1)
+typePF <- c()
+
+four <- c(0,0.25,0.5,1)
+for (i in c(1,-1)){
+  for (j in c(0,0.25,0.5,1)){
+    for (l in c(0,0.25,0.5,1)){
+      typePF <- append(typePF,paste0("",j,"/",l))
+      
+      for (kk in kk){
+        LRfeed[[kk]] <- filter(conLRfeed, feedback1==i, conLeft1==j, conRight1==l)
+      }
+      kk <- kk+1
+    }
+    k <- k+1
+  }
+}
+}
+
+wholeData <- c()
+for (i in 1:length(LRfeed)){
+  wholeData <- c(wholeData, sum(LRfeed[[i]][["feedback1"]]))
+}
+newDat1 <- wholeData[0:32]
+for (i in seq(64,576,32)){
+  newDat1 <- newDat1 + wholeData[(i-31):i]
+}
+
+```
+<p>In <b>Figure 4.</b>, it can be seen that the different contrast combinations have different number of success and fails, and also have different success rates. I plan on grouping my data into three criterias based on the contrast combination. "Passive" for only zero and zero combinations, "choice" for different left and right values, and "random" for when left and right are the same but not zero.</p>    
+```{r, echo = FALSE}
+PassFail <- c(matrix(1,1,16), matrix(-1,1,16))
+pf.dt <- data.frame(newDat1,typePF,PassFail)
+
+pf.gg <- ggplot(pf.dt, aes(typePF, newDat1, fill = PassFail)) +
+  geom_bar(stat="identity", position = "dodge") +
+  scale_x_discrete(guide = guide_axis(n.dodge=2))+
+  theme(legend.position="none")+
+  labs(title="Pass/Fail of Contrast Combinations", x="Contrast Combination (Left/Right)", y="Total Results")
+```
+
+### <b>Figure 4.</b> Contract Combinations    
+
+```{r,echo = FALSE}
+newDataRatio <- 100*(newDat1[1:16] / (newDat1[1:16] + abs(newDat1[17:32])))
+newDataRatio <- signif(newDataRatio,3)
+
+ndr.dt <- data.frame(newDataRatio, typePF)
+ndr.gg <- ggplot(ndr.dt, aes(typePF, newDataRatio)) +
+  geom_bar(stat="identity", position = "dodge", fill="skyblue")+
+  scale_x_discrete(guide = guide_axis(n.dodge=2))+
+  labs(title="Percentage of Success for Contrast Combinations", 
+       x="Contrast Combination (Left/Right)", y="Percentage")+
+  expand_limits(y = c(0, 100))+
+  geom_hline(yintercept=50, color="red")
+  
+grid.arrange(pf.gg, ndr.gg, ncol = 1) 
+```
+## <b>5. Predictive modeling</b>
+
+<p class="body">For my benchmark model, my coefficients are contrast left and the activation rate averages. I removed contrast right as a coefficient in my benchmark model becuase it was not significant enough to explain the response variable when I ran a summary of the model. For my actual model, my coefficients are contrast left, contrast right, test type, and average activation rate. For my actual model, I made the weight of session 1 and session 18 heavier for the training data so it can be better fit for the test data, which is only session 1 and session 18. I weighed the data by repeating the data from session 1 and 18 4 more times.</p>   
+
+```{r, echo=FALSE}
+neuronAveFuncTest <- function(fb){
+sumSesMat <- list()
+sumSesMatFeed <- list()
+numTrials <- c()
+for (ss in 1:2){
+  spks <- testDat[[ss]][["spks"]]
+  count <- c(1:dim(spks[[1]])[1])
+  feed <- testDat[[ss]][["feedback_type"]]
+  trial <- 1:length(feed)
+  feedFilter <- data.frame(feed,trial)
+  
+  longDat <- c()
+  feedback <- c()
+    brainAve <- c(matrix(0,dim(spks[[1]])[1],1))
+    for (j in feedFilter$trial){
+      brainAve <- (mean(rowSums(spks[[j]]!=0)/40))
+      longDat <- append(longDat,brainAve)
+    }
+    
+  sumSesMat[[ss]] <- longDat
+}
+return(sumSesMat)
+}
+
+
+conL.Test = c()
+conR.Test = c()
+feed.Test = c()
+testType.Test = c()
+
+for (i in c(1:2)){
+  conL.Test <- append(conL.Test, testDat[[i]][["contrast_left"]])
+  conR.Test <- append(conR.Test, testDat[[i]][["contrast_right"]])
+  feed.Test <- append(feed.Test, testDat[[i]][["feedback_type"]])
+
+}
+
+for (j in c(1:length(conL.Test))){
+
+    if (conL.Test[j]-conR.Test[j]==0 & conL.Test[j]+conR.Test[j]==0){
+      testType.Test <- append(testType.Test, 1) #Passive
+    } else if (conL.Test[j]-conR.Test[j]==0 & conL.Test[j]+conR.Test[j]!=0){
+        testType.Test <- append(testType.Test, 2) #Random
+    } else if (conL.Test[j] != conR.Test[j]){
+        testType.Test <- append(testType.Test, 3) #Choice
+    }
+}
+
+
+testActDat <- neuronAveFuncTest(c(1,-1))
+```
+
+
+```{r,echo = FALSE}
+conL = c()
+conR = c()
+feed=c()
+testType = c()
+
+for (i in c(1:18)){
+  conL <- append(conL, session[[i]][["contrast_left"]])
+  conR <- append(conR, session[[i]][["contrast_right"]])
+  feed <- append(feed, session[[i]][["feedback_type"]])
+
+}
+
+for (j in c(1:length(conL))){
+
+    if (conL[j]-conR[j]==0 & conL[j]+conR[j]==0){
+      testType <- append(testType, 1) #Passive
+    } else if (conL[j]-conR[j]==0 & conL[j]+conR[j]!=0){
+        testType <- append(testType, 2) #Random
+    } else if (conL[j] != conR[j]){
+        testType <- append(testType, 3) #Choice
+    }
+   }
+```
+
+
+```{r,echo = FALSE}
+testAct <- unlist(testActDat)
+testDataAll <- data.frame(feed=c(feed.Test),actDat=c(testAct),conL=c(conL.Test),conR=c(conR.Test),testType=c(testType.Test))
+
+
+actDat <- unlist(neuronAve)
+
+trainData <- data.frame(feed,actDat,conL,conR,testType)
+benchMark <- data.frame(feed,actDat,conL,conR)
+
+
+
+trainDataWeigh <- rbind(trainData[1:114,], trainData[1:114,], trainData[1:114,], trainData[1:114,], trainData,
+                        trainData[4866:5081,],trainData[4866:5081,],trainData[4866:5081,],trainData[4866:5081,])
+
+trainDataWeigh$feed <- trainDataWeigh$feed == 1
+benchMark$feed <- benchMark$feed == 1
+
+lrModelBench <- glm(feed ~ conL+actDat, data=benchMark, family="binomial") #Took out conR bc it was not significant
+lrModelActual <- glm(feed ~ conL+conR+testType+actDat, data=trainDataWeigh, family="binomial")
+
+#Bench
+newDataBench <- testDataAll
+newDataBench$prediction <- predict(lrModelBench, newdata=newDataBench, type="response")
+predTabBench <- data.frame(newDataBench)
+print(paste0("Benchmark_Model: ",  sum(round(predTabBench$prediction,0)==predTabBench$feed)/length(predTabBench$feed)))
+
+#Actual
+newDataActual <- testDataAll
+newDataActual$prediction <- predict(lrModelActual, newdata=newDataActual, type="response")
+predTab <- data.frame(newDataActual)
+print(paste0("Actual_Model: ", sum(round(predTab$prediction,0)==predTab$feed)/length(predTab$feed)))
+```
+## <b>6. Prediction performance on the test sets</b>    
+
+<p class="body">When I tested my model with the test sets, I found that the benchmark model out performed my actual model. Even though I weighed my data, it was effective enough at predicting. </p>
+
+## <b>7. Discussion</b>   
+
+<p class="body">I put the neural activity in my model by calculating the activation rate and weighed the data so it can better fit for the test data. However, my method of weighing proved to be ineffective. My method for calculating the percent correct is by round all the results to 0 if it was less than 0.5 and rounding to 1 if it was greater than 0.5. There were differences in the results of the benchmark method and the actual method, but the differences were not enough to surpass the 0.5 mark. So when the values were rounded, it was the almost same. Due to the limitations of our class, time as a variable was not able to be used because I am unfamiliar with time series.</p>
+
+## <b>8. Acknowledgements</b>   
+
+<p class="body">I worked in a group with Ben Wiesner, Shatoshi Shinkawa, and Victor Lu. We shared ideas about way to approach the model and ideas for code. I also used ChatGPT for statistical and coding advice.</p>   
+
+## <b>9. References</b>   
+
+<p class="body">Steinmetz, N.A., Zatka-Haas, P., Carandini, M. et al. Distributed coding of choice, action and engagement across the mouse brain. Nature 576, 266–273 (2019). https://doi.org/10.1038/s41586-019-1787-x</p>   
